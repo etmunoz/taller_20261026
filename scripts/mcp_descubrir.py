@@ -14,18 +14,24 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 MAX_RESPONSE_CHARS = 1200
 
 
-def describe(value: Any) -> str:
-    """Convierte la respuesta a texto y la recorta para mostrarla en consola."""
-    # MCP suele devolver bloques de texto con JSON serializado: desenvolverlos
-    # permite que la respuesta sea legible y no una lista de objetos anidados.
+def parse_result(value: Any) -> Any:
+    """Desenvuelve el formato habitual de respuesta de herramientas MCP."""
     if isinstance(value, list) and all(isinstance(item, Mapping) and "text" in item for item in value):
         blocks = [item["text"] for item in value]
         value = blocks[0] if len(blocks) == 1 else blocks
     if isinstance(value, str):
         try:
-            value = json.loads(value)
+            return json.loads(value)
         except json.JSONDecodeError:
-            pass
+            return value
+    return value
+
+
+def describe(value: Any) -> str:
+    """Convierte la respuesta a texto y la recorta para mostrarla en consola."""
+    # MCP suele devolver bloques de texto con JSON serializado: desenvolverlos
+    # permite que la respuesta sea legible y no una lista de objetos anidados.
+    value = parse_result(value)
     if isinstance(value, str):
         text = value
     else:
@@ -116,7 +122,18 @@ async def main() -> None:
                 print(f"    {line}")
             return result
 
-        await call_tool("list_colombia_resources", {})
+        resources_result = await call_tool("list_colombia_resources", {})
+        resources = parse_result(resources_result)
+        if isinstance(resources, list):
+            print("\nRECURSOS DISPONIBLES")
+            print("=" * 80)
+            for resource in sorted(resources, key=lambda item: str(item.get("resource", ""))):
+                if isinstance(resource, Mapping):
+                    key = resource.get("resource", "(sin clave)")
+                    description = resource.get("description", "Sin descripción")
+                    print(f"- {key}: {description}")
+        else:
+            print("\nNo se pudo interpretar la lista de recursos devuelta por el servidor.")
         await call_tool("get_api_reference", {"resource": "departments"})
         search_result = await call_tool(
             "search_items", {"resource": "departments", "keyword": "Antioquia"}
