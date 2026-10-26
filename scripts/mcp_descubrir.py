@@ -16,10 +16,20 @@ MAX_RESPONSE_CHARS = 1200
 
 def describe(value: Any) -> str:
     """Convierte la respuesta a texto y la recorta para mostrarla en consola."""
+    # MCP suele devolver bloques de texto con JSON serializado: desenvolverlos
+    # permite que la respuesta sea legible y no una lista de objetos anidados.
+    if isinstance(value, list) and all(isinstance(item, Mapping) and "text" in item for item in value):
+        blocks = [item["text"] for item in value]
+        value = blocks[0] if len(blocks) == 1 else blocks
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            pass
     if isinstance(value, str):
         text = value
     else:
-        text = json.dumps(value, ensure_ascii=False, default=str)
+        text = json.dumps(value, ensure_ascii=False, indent=2, default=str)
     if len(text) > MAX_RESPONSE_CHARS:
         return text[:MAX_RESPONSE_CHARS] + "... (recortado)"
     return text
@@ -82,13 +92,12 @@ async def main() -> None:
             {"api_colombia": {"transport": "streamable_http", "url": url}}
         )
         tools = await client.get_tools(server_name="api_colombia")
-        print("Herramientas disponibles (argumentos: nombre:tipo)")
-        print("| Nombre | Descripción | Argumentos |")
-        print("|---|---|---|")
+        print("HERRAMIENTAS DISPONIBLES")
+        print("=" * 80)
         for tool in sorted(tools, key=lambda item: item.name):
             first_line = (tool.description or "").splitlines()[0] if tool.description else ""
-            args = ", ".join(f"{name}:{kind}" for name, kind in arguments_for(tool)) or "—"
-            print(f"| {tool.name} | {first_line} | {args} |")
+            args = ", ".join(f"{name} ({kind})" for name, kind in arguments_for(tool)) or "sin argumentos"
+            print(f"\n{tool.name}\n  Descripción: {first_line or 'Sin descripción'}\n  Argumentos:  {args}")
 
         by_name = {tool.name: tool for tool in tools}
 
@@ -99,8 +108,12 @@ async def main() -> None:
             started = time.perf_counter()
             result = await tool.ainvoke(payload)
             elapsed_ms = (time.perf_counter() - started) * 1000
-            print(f"\n{name}({json.dumps(payload, ensure_ascii=False)}) — {elapsed_ms:.1f} ms")
-            print(describe(result))
+            print(f"\nLLAMADA: {name}")
+            print(f"  Argumentos: {json.dumps(payload, ensure_ascii=False)}")
+            print(f"  Duración:   {elapsed_ms:.1f} ms")
+            print("  Respuesta:")
+            for line in describe(result).splitlines():
+                print(f"    {line}")
             return result
 
         await call_tool("list_colombia_resources", {})
