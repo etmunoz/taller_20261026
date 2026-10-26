@@ -1,6 +1,7 @@
 """CLI para ejecutar agentes definidos en src/{nombre_agente}/graph.py."""
 
 import argparse
+import asyncio
 import importlib
 import sys
 from typing import Any
@@ -17,7 +18,8 @@ class TraceHandler(BaseCallbackHandler):
         self.tools: list[tuple[str, str, str]] = []
 
     def on_chain_start(self, serialized: dict[str, Any] | None, inputs: dict[str, Any], **kwargs: Any) -> None:
-        name = kwargs.get("name") or (serialized or {}).get("name")
+        metadata = kwargs.get("metadata") or {}
+        name = metadata.get("langgraph_node") or kwargs.get("name") or (serialized or {}).get("name")
         if name and name not in {"LangGraph", "RunnableSequence"}:
             self.nodes.append(str(name))
 
@@ -30,41 +32,63 @@ class TraceHandler(BaseCallbackHandler):
             self.tools[-1] = (name, arguments, str(output)[:500])
 
 
+async def run(args: argparse.Namespace) -> int:
+    load_dotenv()
+    try:
+        module = importlib.import_module(f"src.{args.agente}.graph")
+    except ModuleNotFoundError as exc:
+        if exc.name == f"src.{args.agente}" or exc.name == "src":
+            raise ValueError(f"No existe el agente '{args.agente}' en src/{args.agente}/") from exc
+        raise
+
+    graph_factory = getattr(module, "get_graph", None)
+    graph = await graph_factory() if graph_factory else getattr(module, "graph", None)
+    if graph is None:
+        raise ValueError(f"src/{args.agente}/graph.py debe exponer 'graph' o 'get_graph()'")
+
+    if args.diagrama:
+        print(graph.get_graph().draw_mermaid())
+        return 0
+    if args.mensaje is None:
+        raise ValueError("mensaje requerido para ejecutar el agente")
+
+    trace = TraceHandler() if args.saltos else None
+    config = {"callbacks": [trace], "configurable": {"thread_id": args.thread_id}} if trace else {
+        "configurable": {"thread_id": args.thread_id}
+    }
+    result = await graph.ainvoke({"messages": [{"role": "user", "content": args.mensaje}]}, config=config)
+    if args.saltos and trace:
+        print("Ruta: " + (" -> ".join(trace.nodes) or "(sin eventos de nodo detectados)"))
+        for name, arguments, summary in trace.tools:
+            print(f"Tool: {name}\n  Argumentos: {arguments}\n  Resultado: {summary}")
+    messages = result.get("messages", [])
+    if messages:
+        print(getattr(messages[-1], "content", messages[-1]))
+    else:
+        print(result)
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Ejecuta un agente del proyecto.")
     parser.add_argument("agente", help="Nombre del agente dentro de src/")
     parser.add_argument("mensaje", nargs="?", help="Mensaje para el agente")
     parser.add_argument("--saltos", action="store_true", help="Muestra nodos y herramientas ejecutadas")
     parser.add_argument("--diagrama", action="store_true", help="Muestra Mermaid sin ejecutar el grafo")
+    parser.add_argument("--thread-id", default="default", help="Identificador de conversación con memoria")
     args = parser.parse_args()
-
-    load_dotenv()
     try:
-        module = importlib.import_module(f"src.{args.agente}.graph")
-    except ModuleNotFoundError as exc:
-        if exc.name == f"src.{args.agente}" or exc.name == "src":
-            parser.error(f"No existe el agente '{args.agente}' en src/{args.agente}/")
-        raise
-
-    graph = getattr(module, "graph", None)
-    if graph is None:
-        parser.error(f"src/{args.agente}/graph.py debe exponer una variable 'graph'")
-
-    if args.diagrama:
-        print(graph.get_graph().draw_mermaid())
-        return 0
-    if args.mensaje is None:
-        parser.error("mensaje requerido para ejecutar el agente")
-
-    trace = TraceHandler() if args.saltos else None
-    config = {"callbacks": [trace]} if trace else None
-    result = graph.invoke({"messages": [{"role": "user", "content": args.mensaje}]}, config=config)
-    if args.saltos and trace:
-        print("Nodos: " + (" -> ".join(trace.nodes) or "(sin eventos de nodo detectados)"))
-        for name, arguments, summary in trace.tools:
-            print(f"Tool: {name}\n  Argumentos: {arguments}\n  Resultado: {summary}")
-    print(result)
-    return 0
+        return asyncio.run(run(args))
+    except ValueError as exc:
+        parser.error(str(exc))
+    except Exception as exc:
+        message = str(exc)
+        if "API_KEY_INVALID" in message or "API key not valid" in message:
+            print("Error: GOOGLE_API_KEY no es válida. Reemplázala por una clave válida en .env.", file=sys.stderr)
+        else:
+            print(f"Error al ejecutar el agente: {message}", file=sys.stderr)
+        return 1
+    return 2
 
 
 if __name__ == "__main__":
