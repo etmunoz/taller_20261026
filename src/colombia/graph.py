@@ -97,9 +97,12 @@ def _fusionar(previos: list[dict[str, str]], nuevos: list[dict[str, str]]) -> li
     return previos + [item for item in nuevos if (item["tool"], item["resultado"]) not in vistos]
 
 
-def _cumple_formato(texto: str) -> bool:
-    tiene_fuente = any(line.strip().lower().startswith("fuente:") for line in texto.splitlines())
-    return tiene_fuente and len(texto.split()) <= MAX_PALABRAS
+def _cumple_formato(texto: str, requiere_fuente: bool = True) -> bool:
+    if len(texto.split()) > MAX_PALABRAS:
+        return False
+    if not requiere_fuente:
+        return True
+    return any(line.strip().lower().startswith("fuente:") for line in texto.splitlines())
 
 
 def _fuente_invalida(texto: str, resultados: list[dict[str, str]]) -> bool:
@@ -202,7 +205,7 @@ async def _construir():
         )
         problemas = list(dict.fromkeys(revision.problemas)) if revision else []
         detalle = revision.detalle if revision else ""
-        if not _cumple_formato(borrador) and "formato" not in problemas:
+        if not _cumple_formato(borrador, requiere_fuente=bool(resultados)) and "formato" not in problemas:
             problemas.append("formato")
         if _fuente_invalida(borrador, resultados) and "dato_no_respaldado" not in problemas:
             problemas.append("dato_no_respaldado")

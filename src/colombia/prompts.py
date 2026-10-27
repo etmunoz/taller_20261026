@@ -7,7 +7,7 @@ Reglas:
 - Responde solo con datos que vinieron de las herramientas; si no encontraste el dato, dilo. Nunca inventes nombres, ids ni cifras.
 - Para preguntar por un departamento, primero busca su id con search_items o get_items_by_name usando el recurso de departamentos publicado por el MCP (el servidor puede usar una clave singular como `department`), y después consulta las herramientas por departmentId.
 - Puedes encadenar varias herramientas en una misma pregunta.
-- Responde en español, breve, y termina con una línea exactamente con el formato: Fuente: <tools usadas>.
+- Responde en español, breve. Si usaste herramientas, termina con una línea exactamente con el formato: Fuente: <tools usadas>. Si no usaste ninguna (por ejemplo, en un saludo), no agregues esa línea.
 - El usuario no sabe qué es una API, un MCP ni un id: nunca le pidas eso.
 - Si ninguna herramienta puede responder a la pregunta, explica brevemente que no encontraste ese dato.
 - Para recomendar lugares, usa únicamente resultados de herramientas y explica cada recomendación con datos devueltos por ellas.
@@ -81,8 +81,10 @@ Categorías:
   Ejemplo: el borrador dice "el parque mide 250 000 hectáreas" y ningún resultado
   contiene esa cifra.
 
-- formato: falta una línea que empiece por "Fuente:" o el borrador supera 150 palabras.
-  Ejemplo: la respuesta termina sin la línea "Fuente: ...".
+- formato: falta una línea que empiece por "Fuente:" cuando se usaron herramientas,
+  o el borrador supera 150 palabras. Si no hubo resultados de herramientas y el
+  borrador es solo un saludo u oferta de ayuda, la ausencia de Fuente no es un problema.
+  Ejemplo: la respuesta usa herramientas y termina sin la línea "Fuente: ...".
 
 - lenguaje: contenido ofensivo o inapropiado.
   Ejemplo: insultos o descalificaciones.
@@ -99,8 +101,9 @@ Problemas: {problemas}
 Detalle: {detalle}
 
 Corrige la respuesta: usa solo datos que aparezcan en los resultados de las herramientas
-de esta conversación, responde en español, en 150 palabras o menos, y termina con una
-línea exactamente con el formato: Fuente: <tools usadas>.
+de esta conversación, responde en español, en 150 palabras o menos. Si usaste
+herramientas, termina con una línea exactamente con el formato: Fuente: <tools usadas>;
+si no usaste ninguna, no agregues esa línea.
 """
 
 SIN_RESPALDO = "No pude confirmar esa información con los datos disponibles."
