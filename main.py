@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import importlib
+import logging
 import sys
 from typing import Any
 
@@ -15,7 +16,8 @@ class TraceHandler(BaseCallbackHandler):
 
     def __init__(self) -> None:
         self.nodes: list[str] = []
-        self.tools: list[tuple[str, str, str]] = []
+        self.tools: list[list[str]] = []
+        self._indices: dict[str, int] = {}
 
     def on_chain_start(self, serialized: dict[str, Any] | None, inputs: dict[str, Any], **kwargs: Any) -> None:
         name = (kwargs.get("metadata") or {}).get("langgraph_node")
@@ -23,12 +25,20 @@ class TraceHandler(BaseCallbackHandler):
             self.nodes.append(str(name))
 
     def on_tool_start(self, serialized: dict[str, Any] | None, input_str: str, **kwargs: Any) -> None:
-        self.tools.append((str(kwargs.get("name") or (serialized or {}).get("name") or "tool"), input_str, ""))
+        self.tools.append(
+            [str(kwargs.get("name") or (serialized or {}).get("name") or "tool"), input_str, ""]
+        )
+        run_id = kwargs.get("run_id")
+        if run_id is not None:
+            self._indices[str(run_id)] = len(self.tools) - 1
 
     def on_tool_end(self, output: Any, **kwargs: Any) -> None:
-        if self.tools:
-            name, arguments, _ = self.tools[-1]
-            self.tools[-1] = (name, arguments, str(output)[:500])
+        run_id = kwargs.get("run_id")
+        index = self._indices.get(str(run_id)) if run_id is not None else None
+        if index is None and self.tools:
+            index = len(self.tools) - 1
+        if index is not None:
+            self.tools[index][2] = str(output)[:500]
 
 
 async def run(args: argparse.Namespace) -> int:
@@ -66,6 +76,13 @@ async def run(args: argparse.Namespace) -> int:
                 f"Veredicto: permitido={veredicto.get('permitido')} "
                 f"categoria={veredicto.get('categoria')} motivo={veredicto.get('motivo')}"
             )
+        revision = result.get("revision")
+        if isinstance(revision, dict):
+            print(
+                f"Revisión: aprobada={revision.get('aprobada')} "
+                f"problemas={revision.get('problemas')} detalle={revision.get('detalle')}"
+            )
+            print(f"Reintento: {'sí' if result.get('rechazos') else 'no'}")
         for name, arguments, summary in trace.tools:
             print(f"Tool: {name}\n  Argumentos: {arguments}\n  Resultado: {summary}")
     messages = result.get("messages", [])
@@ -88,6 +105,7 @@ def _message_text(message: Any) -> str:
 
 
 def main() -> int:
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
     parser = argparse.ArgumentParser(description="Ejecuta un agente del proyecto.")
     parser.add_argument("agente", help="Nombre del agente dentro de src/")
     parser.add_argument("mensaje", nargs="?", help="Mensaje para el agente")

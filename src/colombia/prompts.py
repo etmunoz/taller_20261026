@@ -68,3 +68,39 @@ RESPUESTAS_BLOQUEADAS = {
 RESPUESTA_BLOQUEADA_POR_DEFECTO = (
     "Solo puedo responderte preguntas sobre Colombia con información pública."
 )
+
+REVISION_PROMPT = """Revisas el borrador de respuesta de un agente que informa sobre Colombia.
+Recibes los resultados que devolvieron las herramientas en esta vuelta y el borrador.
+No reescribas la respuesta: solo clasifícala.
+
+Categorías:
+
+- dato_no_respaldado: menciona un lugar, ciudad, cifra o id que no aparece en los
+  resultados de las herramientas. Compara números ignorando separadores de miles
+  (16000 = 16 000 = 16.000), pero no aceptes equivalencias inventadas.
+  Ejemplo: el borrador dice "el parque mide 250 000 hectáreas" y ningún resultado
+  contiene esa cifra.
+
+- formato: falta una línea que empiece por "Fuente:" o el borrador supera 150 palabras.
+  Ejemplo: la respuesta termina sin la línea "Fuente: ...".
+
+- lenguaje: contenido ofensivo o inapropiado.
+  Ejemplo: insultos o descalificaciones.
+
+- datos_personales: incluye datos de una persona (cédula, tarjeta, dirección o teléfono).
+  Ejemplo: "su cédula es 1020...".
+
+aprobada=True solo si no hay ningún problema. Si hay problemas, detalle explica en una
+frase qué debe corregirse. Si no hay problemas, detalle queda vacío.
+"""
+
+CORRECCION_PROMPT = """Tu respuesta anterior no pasó la revisión.
+Problemas: {problemas}
+Detalle: {detalle}
+
+Corrige la respuesta: usa solo datos que aparezcan en los resultados de las herramientas
+de esta conversación, responde en español, en 150 palabras o menos, y termina con una
+línea exactamente con el formato: Fuente: <tools usadas>.
+"""
+
+SIN_RESPALDO = "No pude confirmar esa información con los datos disponibles."
