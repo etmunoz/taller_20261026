@@ -40,14 +40,16 @@ async def run(args: argparse.Namespace) -> int:
             raise ValueError(f"No existe el agente '{args.agente}' en src/{args.agente}/") from exc
         raise
 
+    if args.diagrama:
+        diagrama = getattr(module, "get_diagrama", None)
+        print((await diagrama()).rstrip() if diagrama else graph.get_graph().draw_mermaid().rstrip())
+        return 0
+
     graph_factory = getattr(module, "get_graph", None)
     graph = await graph_factory() if graph_factory else getattr(module, "graph", None)
     if graph is None:
         raise ValueError(f"src/{args.agente}/graph.py debe exponer 'graph' o 'get_graph()'")
 
-    if args.diagrama:
-        print(graph.get_graph().draw_mermaid())
-        return 0
     if args.mensaje is None:
         raise ValueError("mensaje requerido para ejecutar el agente")
 

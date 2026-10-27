@@ -51,7 +51,7 @@ def _texto(message: AnyMessage) -> str:
     return str(message.content)
 
 
-async def get_graph():
+async def _construir():
     api_key = os.getenv("GOOGLE_API_KEY")
     if not api_key:
         raise RuntimeError("Falta GOOGLE_API_KEY en .env; configura tu clave para ejecutar el agente.")
@@ -92,4 +92,27 @@ async def get_graph():
     )
     builder.add_edge("agente", END)
     builder.add_edge("respuesta_bloqueada", END)
-    return builder.compile(checkpointer=memory)
+    return builder.compile(checkpointer=memory), tools
+
+
+async def get_graph():
+    graph, _ = await _construir()
+    return graph
+
+
+def _mermaid_con_tools(mermaid: str, tools: list[Any]) -> str:
+    """Añade al Mermaid del grafo un subgrafo con las herramientas MCP disponibles."""
+    nombres = sorted(tool.name for tool in tools)
+    lineas = [mermaid.rstrip(), "", '\tsubgraph herramientas_mcp["Herramientas MCP"]']
+    for name in nombres:
+        lineas.append(f'\t\t{name}["{name}"]')
+    lineas.append("\tend")
+    for name in nombres:
+        lineas.append(f"\tagente --> {name}")
+    return "\n".join(lineas) + "\n"
+
+
+async def get_diagrama() -> str:
+    graph, tools = await _construir()
+    return _mermaid_con_tools(graph.get_graph().draw_mermaid(), tools)
+
