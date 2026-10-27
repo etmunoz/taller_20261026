@@ -9,9 +9,14 @@ from typing import Any
 
 from dotenv import load_dotenv
 from langchain_mcp_adapters.client import MultiServerMCPClient
+from rich.console import Console
+from rich.panel import Panel
+from rich.syntax import Syntax
+from rich.table import Table
 
 
 MAX_RESPONSE_CHARS = 1200
+console = Console()
 
 
 def parse_result(value: Any) -> Any:
@@ -51,10 +56,13 @@ def arguments_for(tool: Any) -> list[tuple[str, str]]:
             schema = args_schema.model_json_schema().get("properties", {})
     if isinstance(schema, Mapping) and "properties" in schema:
         schema = schema["properties"]
-    return [
-        (name, str(details.get("type", "object")) if isinstance(details, Mapping) else "desconocido")
-        for name, details in schema.items()
-    ]
+    arguments = []
+    for name, details in schema.items():
+        kind = details.get("type", "object") if isinstance(details, Mapping) else "desconocido"
+        if isinstance(kind, list):
+            kind = " | ".join(kind)
+        arguments.append((name, str(kind)))
+    return arguments
 
 
 def find_department_id(value: Any) -> Any:
@@ -90,7 +98,7 @@ async def main() -> None:
     load_dotenv()
     url = os.getenv("API_COLOMBIA_MCP_URL")
     if not url:
-        print("Error: falta API_COLOMBIA_MCP_URL. Configúrala en .env.")
+        console.print("[bold red]Error:[/bold red] falta API_COLOMBIA_MCP_URL. Configúrala en .env.")
         return
 
     try:
@@ -98,53 +106,63 @@ async def main() -> None:
             {"api_colombia": {"transport": "streamable_http", "url": url}}
         )
         tools = await client.get_tools(server_name="api_colombia")
-        print("HERRAMIENTAS DISPONIBLES")
-        print("=" * 80)
+        console.print("\n[bold cyan]API COLOMBIA MCP[/bold cyan]  [dim]Descubrimiento de herramientas y recursos[/dim]\n")
+        tools_table = Table(title="Herramientas disponibles", header_style="bold magenta", show_lines=True)
+        tools_table.add_column("Nombre", style="cyan", no_wrap=True)
+        tools_table.add_column("Descripción")
+        tools_table.add_column("Argumentos", style="green")
         for tool in sorted(tools, key=lambda item: item.name):
             first_line = (tool.description or "").splitlines()[0] if tool.description else ""
-            args = ", ".join(f"{name} ({kind})" for name, kind in arguments_for(tool)) or "sin argumentos"
-            print(f"\n{tool.name}\n  Descripción: {first_line or 'Sin descripción'}\n  Argumentos:  {args}")
+            args = "\n".join(f"{name}: {kind}" for name, kind in arguments_for(tool)) or "sin argumentos"
+            tools_table.add_row(tool.name, first_line or "Sin descripción", args)
+        console.print(tools_table)
 
         by_name = {tool.name: tool for tool in tools}
 
-        async def call_tool(name: str, payload: dict[str, Any]) -> Any:
+        async def call_tool(name: str, payload: dict[str, Any], *, show_response: bool = True) -> Any:
             tool = by_name.get(name)
             if tool is None:
                 raise RuntimeError(f"El servidor no expone la herramienta requerida '{name}'.")
             started = time.perf_counter()
             result = await tool.ainvoke(payload)
             elapsed_ms = (time.perf_counter() - started) * 1000
-            print(f"\nLLAMADA: {name}")
-            print(f"  Argumentos: {json.dumps(payload, ensure_ascii=False)}")
-            print(f"  Duración:   {elapsed_ms:.1f} ms")
-            print("  Respuesta:")
-            for line in describe(result).splitlines():
-                print(f"    {line}")
+            arguments = json.dumps(payload, ensure_ascii=False)
+            if show_response:
+                response = describe(result)
+                try:
+                    json.loads(response)
+                    renderable = Syntax(response, "json", theme="monokai", word_wrap=True)
+                except json.JSONDecodeError:
+                    renderable = response
+                console.print(f"[dim]Argumentos:[/dim] {arguments}")
+                console.print(Panel(renderable, title=f"[bold cyan]{name}[/bold cyan]", subtitle=f"{elapsed_ms:.1f} ms", expand=False, border_style="blue"))
+            else:
+                console.print(f"[dim]OK  {name}[/dim]  [green]{elapsed_ms:.1f} ms[/green]")
             return result
 
-        resources_result = await call_tool("list_colombia_resources", {})
+        resources_result = await call_tool("list_colombia_resources", {}, show_response=False)
         resources = parse_result(resources_result)
         if isinstance(resources, list):
-            print("\nRECURSOS DISPONIBLES")
-            print("=" * 80)
-            for resource in sorted(resources, key=lambda item: str(item.get("resource", ""))):
+            resources_table = Table(title="Recursos disponibles", header_style="bold magenta", show_lines=True)
+            resources_table.add_column("Clave", style="cyan", no_wrap=True)
+            resources_table.add_column("Descripción")
+            for resource in sorted(resources, key=lambda item: str(item.get("resource", "")) if isinstance(item, Mapping) else ""):
                 if isinstance(resource, Mapping):
-                    key = resource.get("resource", "(sin clave)")
-                    description = resource.get("description", "Sin descripción")
-                    print(f"- {key}: {description}")
+                    resources_table.add_row(str(resource.get("resource", "(sin clave)")), str(resource.get("description", "Sin descripción")))
+            console.print(resources_table)
         else:
-            print("\nNo se pudo interpretar la lista de recursos devuelta por el servidor.")
+            console.print("[yellow]No se pudo interpretar la lista de recursos devuelta por el servidor.[/yellow]")
         await call_tool("get_api_reference", {"resource": "departments"})
         search_result = await call_tool(
             "search_items", {"resource": "departments", "keyword": "Antioquia"}
         )
         department_id = find_department_id(search_result)
         if department_id is None:
-            print("\nNo se encontró un id de departamento en la respuesta; se omite la segunda prueba.")
+            console.print("[yellow]No se encontró un id de departamento; se omite la consulta de áreas naturales.[/yellow]")
             return
         await call_tool("get_natural_areas_by_department", {"departmentId": department_id})
     except Exception as exc:
-        print(f"Error al conectar o consultar API Colombia MCP: {exc}")
+        console.print(f"[bold red]Error al conectar o consultar API Colombia MCP:[/bold red] {exc}")
 
 
 if __name__ == "__main__":
