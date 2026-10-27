@@ -18,9 +18,8 @@ class TraceHandler(BaseCallbackHandler):
         self.tools: list[tuple[str, str, str]] = []
 
     def on_chain_start(self, serialized: dict[str, Any] | None, inputs: dict[str, Any], **kwargs: Any) -> None:
-        metadata = kwargs.get("metadata") or {}
-        name = metadata.get("langgraph_node") or kwargs.get("name") or (serialized or {}).get("name")
-        if name and name not in {"LangGraph", "RunnableSequence"}:
+        name = (kwargs.get("metadata") or {}).get("langgraph_node")
+        if name and (not self.nodes or self.nodes[-1] != str(name)):
             self.nodes.append(str(name))
 
     def on_tool_start(self, serialized: dict[str, Any] | None, input_str: str, **kwargs: Any) -> None:
@@ -59,14 +58,31 @@ async def run(args: argparse.Namespace) -> int:
     result = await graph.ainvoke({"messages": [{"role": "user", "content": args.mensaje}]}, config=config)
     if args.saltos and trace:
         print("Ruta: " + (" -> ".join(trace.nodes) or "(sin eventos de nodo detectados)"))
+        veredicto = result.get("veredicto")
+        if isinstance(veredicto, dict):
+            print(
+                f"Veredicto: permitido={veredicto.get('permitido')} "
+                f"categoria={veredicto.get('categoria')} motivo={veredicto.get('motivo')}"
+            )
         for name, arguments, summary in trace.tools:
             print(f"Tool: {name}\n  Argumentos: {arguments}\n  Resultado: {summary}")
     messages = result.get("messages", [])
     if messages:
-        print(getattr(messages[-1], "content", messages[-1]))
+        print(_message_text(messages[-1]))
     else:
         print(result)
     return 0
+
+
+def _message_text(message: Any) -> str:
+    content = getattr(message, "content", message)
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            block.get("text", "") if isinstance(block, dict) else str(block) for block in content
+        )
+    return str(content)
 
 
 def main() -> int:
